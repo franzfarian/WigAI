@@ -52,6 +52,7 @@ public class BitwigApiFacade {
     private final CursorTrack cursorTrack;
     private final RemoteControlsPage projectParameterBank;
     private final List<DeviceBank> trackDeviceBanks;
+    private final Clip cursorClip;
 
     /**
      * Creates a new BitwigApiFacade instance.
@@ -92,6 +93,12 @@ public class BitwigApiFacade {
         // Initialize track bank for clip launching (support up to 128 tracks and 128 scenes for full functionality)
         this.trackBank = host.createTrackBank(Constants.MAX_TRACKS, 0, Constants.MAX_SCENES);
         this.sceneBankFacade = new SceneBankFacade(host, logger, Constants.MAX_SCENES); // Support up to 128 scenes for full functionality
+
+        // Initialize cursor clip for note/clip content operations (128 steps x 128 keys)
+        this.cursorClip = host.createCursorClip(128, 128);
+        cursorClip.exists().markInterested();
+        cursorClip.getPlayStart().markInterested();
+        cursorClip.getPlayStop().markInterested();
 
         // Initialize device banks for each track to enable device enumeration
         this.trackDeviceBanks = new ArrayList<>();
@@ -1749,5 +1756,186 @@ public class BitwigApiFacade {
         // Compare device name
         String selectedDeviceName = cursorDevice.name().get();
         return deviceName.equals(selectedDeviceName);
+    }
+
+    // ========================================
+    // Clip Content Creation Methods
+    // ========================================
+
+    /**
+     * Gets a ClipLauncherSlot by track name and slot index.
+     *
+     * @param trackName The name of the track
+     * @param slotIndex The zero-based clip launcher slot index (scene index)
+     * @return The ClipLauncherSlot
+     * @throws BitwigApiException if track not found or slot index out of bounds
+     */
+    private ClipLauncherSlot getClipLauncherSlot(String trackName, int slotIndex) throws BitwigApiException {
+        final String operation = "getClipLauncherSlot";
+
+        ParameterValidator.validateNotEmpty(trackName, "trackName", operation);
+        ParameterValidator.validateClipIndex(slotIndex, operation);
+
+        Optional<Track> trackOpt = findTrackByName(trackName);
+        if (trackOpt.isEmpty()) {
+            throw new BitwigApiException(
+                ErrorCode.TRACK_NOT_FOUND,
+                operation,
+                "Track '" + trackName + "' not found",
+                Map.of("trackName", trackName)
+            );
+        }
+
+        ClipLauncherSlotBank slotBank = trackOpt.get().clipLauncherSlotBank();
+        if (slotIndex >= slotBank.getSizeOfBank()) {
+            throw new BitwigApiException(
+                ErrorCode.INVALID_RANGE,
+                operation,
+                "Slot index " + slotIndex + " out of bounds for track '" + trackName + "' (max: " + (slotBank.getSizeOfBank() - 1) + ")",
+                Map.of("trackName", trackName, "slotIndex", slotIndex, "maxIndex", slotBank.getSizeOfBank() - 1)
+            );
+        }
+
+        return slotBank.getItemAt(slotIndex);
+    }
+
+    /**
+     * Creates an empty MIDI clip in a launcher slot.
+     *
+     * @param trackName     The name of the track
+     * @param slotIndex     The zero-based slot/scene index
+     * @param lengthInBeats The length of the new clip in beats (quarter notes)
+     * @throws BitwigApiException if track not found, slot out of bounds, or API error
+     */
+    public void createClipOnTrack(String trackName, int slotIndex, int lengthInBeats) throws BitwigApiException {
+        final String operation = "createClip";
+        logger.info("BitwigApiFacade: Creating clip on track '" + trackName + "' slot " + slotIndex + " length " + lengthInBeats);
+
+        WigAIErrorHandler.executeWithErrorHandling(operation, () -> {
+            ClipLauncherSlot slot = getClipLauncherSlot(trackName, slotIndex);
+
+            // Validate length
+            if (lengthInBeats < 1 || lengthInBeats > 4096) {
+                throw new BitwigApiException(
+                    ErrorCode.INVALID_PARAMETER,
+                    operation,
+                    "Clip length must be between 1 and 4096 beats, got: " + lengthInBeats,
+                    Map.of("lengthInBeats", lengthInBeats)
+                );
+            }
+
+            // Create the clip (overwrites existing clip in this slot)
+            slot.createEmptyClip(lengthInBeats);
+
+            logger.info("BitwigApiFacade: Successfully created clip on " + trackName + "[" + slotIndex + "] (" + lengthInBeats + " beats)");
+        });
+    }
+
+    /**
+     * Deletes a clip from a launcher slot.
+     *
+     * @param trackName The name of the track
+     * @param slotIndex The zero-based slot/scene index
+     * @throws BitwigApiException if track not found, slot out of bounds, or API error
+     */
+    public void deleteClipOnTrack(String trackName, int slotIndex) throws BitwigApiException {
+        final String operation = "deleteClip";
+        logger.info("BitwigApiFacade: Deleting clip on track '" + trackName + "' slot " + slotIndex);
+
+        WigAIErrorHandler.executeWithErrorHandling(operation, () -> {
+            ClipLauncherSlot slot = getClipLauncherSlot(trackName, slotIndex);
+            slot.deleteObject();
+
+            logger.info("BitwigApiFacade: Successfully deleted clip on " + trackName + "[" + slotIndex + "]");
+        });
+    }
+
+    /**
+     * Adds a single MIDI note to a clip by first selecting the slot, then using
+     * CursorClip to set a step at the given key/step position.
+     *
+     * @param trackName The name of the track
+     * @param slotIndex The zero-based slot/scene index
+     * @param key       MIDI key (0-127)
+     * @param step      Step position within the clip (0-based, 16th notes)
+     * @param velocity  Note velocity (0.0-1.0)
+     * @param duration  Note duration in beats (e.g. 0.25 = 16th note)
+     * @throws BitwigApiException if parameters are invalid or API error
+     */
+    public void addNoteToClip(String trackName, int slotIndex, int key, int step, double velocity, double duration) throws BitwigApiException {
+        final String operation = "addNote";
+        logger.info("BitwigApiFacade: Adding note to " + trackName + "[" + slotIndex + "] key=" + key + " step=" + step + " vel=" + velocity + " dur=" + duration);
+
+        WigAIErrorHandler.executeWithErrorHandling(operation, () -> {
+            ClipLauncherSlot slot = getClipLauncherSlot(trackName, slotIndex);
+
+            // Validate note parameters
+            if (key < 0 || key > 127) {
+                throw new BitwigApiException(
+                    ErrorCode.INVALID_PARAMETER,
+                    operation,
+                    "MIDI key must be between 0 and 127, got: " + key,
+                    Map.of("key", key)
+                );
+            }
+            if (step < 0 || step > 127) {
+                throw new BitwigApiException(
+                    ErrorCode.INVALID_PARAMETER,
+                    operation,
+                    "Step must be between 0 and 127, got: " + step,
+                    Map.of("step", step)
+                );
+            }
+            if (velocity < 0.0 || velocity > 1.0) {
+                throw new BitwigApiException(
+                    ErrorCode.INVALID_PARAMETER,
+                    operation,
+                    "Velocity must be between 0.0 and 1.0, got: " + velocity,
+                    Map.of("velocity", velocity)
+                );
+            }
+            if (duration <= 0.0 || duration > 128.0) {
+                throw new BitwigApiException(
+                    ErrorCode.INVALID_PARAMETER,
+                    operation,
+                    "Duration must be between 0.0 and 128.0 beats, got: " + duration,
+                    Map.of("duration", duration)
+                );
+            }
+
+            // Select the slot so the cursor clip points to it
+            slot.select();
+
+            // Use CursorClip to set the step
+            cursorClip.scrollToKey(key);
+            cursorClip.scrollToStep(step);
+            cursorClip.setStep(key, step, (int)(velocity * 127), duration);
+
+            logger.info("BitwigApiFacade: Successfully added note to " + trackName + "[" + slotIndex + "] key=" + key + " step=" + step);
+        });
+    }
+
+    /**
+     * Clears all notes/steps from a clip in a launcher slot.
+     *
+     * @param trackName The name of the track
+     * @param slotIndex The zero-based slot/scene index
+     * @throws BitwigApiException if track not found, slot out of bounds, or API error
+     */
+    public void clearSlotOnTrack(String trackName, int slotIndex) throws BitwigApiException {
+        final String operation = "clearSlot";
+        logger.info("BitwigApiFacade: Clearing slot on track '" + trackName + "' slot " + slotIndex);
+
+        WigAIErrorHandler.executeWithErrorHandling(operation, () -> {
+            ClipLauncherSlot slot = getClipLauncherSlot(trackName, slotIndex);
+
+            // Select the slot so the cursor clip points to it
+            slot.select();
+
+            // Clear all steps in the clip
+            cursorClip.clearSteps();
+
+            logger.info("BitwigApiFacade: Successfully cleared slot " + trackName + "[" + slotIndex + "]");
+        });
     }
 }

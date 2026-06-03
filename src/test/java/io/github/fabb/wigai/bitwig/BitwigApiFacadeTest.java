@@ -54,6 +54,9 @@ public class BitwigApiFacadeTest {
     private Scene mockScene;
 
     @Mock
+    private Clip mockCursorClip;
+
+    @Mock
     private Application mockApplication;
 
     @Mock
@@ -114,6 +117,12 @@ public class BitwigApiFacadeTest {
         when(mockHost.createSceneBank(128)).thenReturn(mockSceneBank);
         when(mockSceneBank.getItemAt(anyInt())).thenReturn(mockScene);
         when(mockSceneBank.getSizeOfBank()).thenReturn(8); // Reduced from 128 to 8 for testing
+
+        // Setup CursorClip mock for clip content operations
+        when(mockHost.createCursorClip(128, 128)).thenReturn(mockCursorClip);
+        lenient().when(mockCursorClip.exists()).thenReturn(mock(com.bitwig.extension.controller.api.BooleanValue.class));
+        lenient().when(mockCursorClip.getPlayStart()).thenReturn(mock(com.bitwig.extension.controller.api.SettableBeatTimeValue.class));
+        lenient().when(mockCursorClip.getPlayStop()).thenReturn(mock(com.bitwig.extension.controller.api.SettableBeatTimeValue.class));
 
         // Setup parameter mocks with lenient stubbing to avoid NPEs
         lenient().when(mockParameterBank.getParameter(anyInt())).thenReturn(mockRemoteControl);
