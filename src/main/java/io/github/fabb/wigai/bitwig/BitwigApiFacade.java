@@ -54,6 +54,93 @@ public class BitwigApiFacade {
     private final List<DeviceBank> trackDeviceBanks;
     private final Clip cursorClip;
 
+    // Preset/Page caching — updated by observers in constructor
+    private volatile String[] presetNames = new String[0];
+    private volatile String[] presetCategories = new String[0];
+    private volatile String[] presetCreators = new String[0];
+    private volatile String[] pageNames = new String[0];
+    private volatile int selectedPresetIndex = -1;
+    private volatile int selectedPageIndex = -1;
+
+    // Bitwig built-in device UUID lookup table (extracted from Bitwig 6.0.6)
+    private static final java.util.Map<String, String> DEVICE_UUID_MAP = new java.util.LinkedHashMap<>();
+    static {
+        // Synths
+        DEVICE_UUID_MAP.put("polysynth", "a9ffacb5-33e9-4fc7-8621-b1af31e410ef");
+        DEVICE_UUID_MAP.put("phase-4", "252723bf-68a6-4ee6-81f8-95ba4d0fb467");
+        DEVICE_UUID_MAP.put("polymer", "8f58138b-03aa-4e9d-83bd-a038c99a4ed5");
+        DEVICE_UUID_MAP.put("fm-4", "7a0a94df-3aa4-4bb5-8e24-2511999871ad");
+        DEVICE_UUID_MAP.put("sampler", "468bc14b-b2e7-45a1-9666-e83117fe404e");
+        DEVICE_UUID_MAP.put("organ", "f2dcfe9a-7b66-4c84-984a-b25685a1c21a");
+        // Drum
+        DEVICE_UUID_MAP.put("drum machine", "8ea97e45-0255-40fd-bc7e-94419741e9d1");
+        // Grid
+        DEVICE_UUID_MAP.put("poly grid", "a33bba66-8cd4-4f89-aee5-68bf67f70a54");
+        DEVICE_UUID_MAP.put("fx grid", "d641f61b-d4db-4006-930e-cdd7aeb3e9d7");
+        DEVICE_UUID_MAP.put("note grid", "264d6f4e-5067-46c9-a4fa-a75a295d9e01");
+        // Container
+        DEVICE_UUID_MAP.put("instrument layer", "5024be2e-65d6-4d40-bbfe-8b2ea993c445");
+        DEVICE_UUID_MAP.put("instrument selector", "9588fbcf-721a-438b-8555-97e4231f7d2c");
+        DEVICE_UUID_MAP.put("fx layer", "a0913b7f-096b-4ac9-bddd-33c775314b42");
+        DEVICE_UUID_MAP.put("fx selector", "956e396b-07c5-4430-a58d-8dcfc316522a");
+        DEVICE_UUID_MAP.put("chain", "c86d21fb-d544-4daf-a1bf-57de22aa320c");
+        // EQ
+        DEVICE_UUID_MAP.put("eq+", "e4815188-ba6f-4d14-bcfc-2dcb8f778ccb");
+        DEVICE_UUID_MAP.put("eq-2", "01af068e-1e49-4777-a6e6-7f1dc679227a");
+        DEVICE_UUID_MAP.put("eq-5", "227e2e3c-75d5-46f3-960d-8fb5529fe29f");
+        DEVICE_UUID_MAP.put("eq-dj", "3cc1b71a-e22a-42cf-89f0-316475368fb3");
+        // Dynamics
+        DEVICE_UUID_MAP.put("compressor", "2b1b4787-8d74-4138-877b-9197209eef0f");
+        DEVICE_UUID_MAP.put("compressor+", "42b32cd2-6275-4ff1-970f-4fac71d15ad9");
+        DEVICE_UUID_MAP.put("gate", "556300ac-3a6e-4423-966a-5d5dde459a1b");
+        DEVICE_UUID_MAP.put("peak limiter", "8da7251e-2578-4bcc-b3c4-8f4ec2e115d0");
+        DEVICE_UUID_MAP.put("transient control", "71e6dbd8-a117-4ff0-85e8-5650f5a76d98");
+        DEVICE_UUID_MAP.put("tool", "e67b9c56-838d-4fba-8e3e-ae4e02cccbcb");
+        // Reverb/Delay
+        DEVICE_UUID_MAP.put("reverb", "5a1cb339-1c4a-4cc7-9cae-bd7a2058153d");
+        DEVICE_UUID_MAP.put("delay+", "f2baa2a8-36c5-4a79-b1d9-a4e461c45ee9");
+        DEVICE_UUID_MAP.put("delay-1", "2a7a7328-3f7a-4afb-95eb-5230c298bb90");
+        DEVICE_UUID_MAP.put("delay-2", "71539d5d-1c7a-4dac-8f74-29e23b89b599");
+        DEVICE_UUID_MAP.put("delay-4", "f95a0e18-5a8b-4f53-93ad-8be73fd668bd");
+        // Modulation
+        DEVICE_UUID_MAP.put("chorus", "d275f9a6-0e4a-409c-9dc4-d74af90bc7ae");
+        DEVICE_UUID_MAP.put("flanger", "8393c436-b11b-4fee-85dd-b2ef0a2ed380");
+        DEVICE_UUID_MAP.put("phaser", "fc87ae07-1624-449f-8dae-2db5d93e1aa9");
+        DEVICE_UUID_MAP.put("ring-mod", "374feaeb-c785-4243-9d08-3f9099b4c0cb");
+        DEVICE_UUID_MAP.put("tremolo", "f3b90fff-402b-4187-9aab-620f441577b9");
+        // Filter
+        DEVICE_UUID_MAP.put("filter", "4ccfc70e-59bd-4e97-a8a7-d8cdce88bf42");
+        DEVICE_UUID_MAP.put("filter+", "6d621c1c-ab64-43b4-aea3-dad37e6f649c");
+        DEVICE_UUID_MAP.put("sweep", "ab52804f-1169-4657-b8c8-8db5532cf717");
+        DEVICE_UUID_MAP.put("ladder", "abfbbd63-8801-4bdb-a1ad-4b197f4d41e0");
+        DEVICE_UUID_MAP.put("comb", "20e18780-8438-48d3-b234-40dcbaa947b8");
+        // Distortion
+        DEVICE_UUID_MAP.put("distortion", "b5b2b08e-730e-4192-be71-f572ceb5069b");
+        DEVICE_UUID_MAP.put("saturator", "93d11348-86ae-4ead-9fe7-84ac03b9369c");
+        DEVICE_UUID_MAP.put("bit-8", "43875255-6f1f-4d54-a5ad-c45bff793477");
+        DEVICE_UUID_MAP.put("amp", "41be8f3a-6d24-4442-9508-8548dbe62d47");
+        DEVICE_UUID_MAP.put("over", "41b34699-8e5d-4534-a429-a67d488ba6ac");
+        // Note FX
+        DEVICE_UUID_MAP.put("arpeggiator", "4d407a2b-c91b-4e4c-9a89-c53c19fe6251");
+        DEVICE_UUID_MAP.put("note repeater", "a68e0f1b-bcc6-45c2-b09e-8c8771f83e50");
+        DEVICE_UUID_MAP.put("bend", "6aec6e78-9c1e-4c0b-8a88-0c2c37890a1d");
+        DEVICE_UUID_MAP.put("echo", "43c102c9-ce32-4dd8-b207-f0831733b17b");
+        DEVICE_UUID_MAP.put("key filter", "f14bacde-084c-4f14-8bdf-d8c4fda8b368");
+        DEVICE_UUID_MAP.put("note filter", "ef7559c8-49ae-4657-95be-11abb896c969");
+        DEVICE_UUID_MAP.put("note transpose", "0815cd9e-3a31-4429-a268-dabd952a3b68");
+        DEVICE_UUID_MAP.put("humanize", "f7b6f2a6-bfca-41ec-8646-b68e0f4cf12b");
+        DEVICE_UUID_MAP.put("multi-note", "0a015261-7546-4f6d-9197-098a26ff2c20");
+        DEVICE_UUID_MAP.put("quantize", "1c116b76-2b07-4b16-bf2a-ed5f0bdcc661");
+        // Audio FX
+        DEVICE_UUID_MAP.put("freq shifter", "7ec87fdf-0bf8-42e7-b54b-5d8b68e330b1");
+        DEVICE_UUID_MAP.put("blur", "72a3018d-788b-472c-b1d7-16419d00f4c6");
+        DEVICE_UUID_MAP.put("pitch shifter", "384fe469-6023-4f69-9560-e0c2eec2da49");
+        DEVICE_UUID_MAP.put("treemonster", "e45e00d2-85a0-4c05-8321-819694befa09");
+        // Analysis
+        DEVICE_UUID_MAP.put("spectrum", "fcd9aa65-ebbb-4337-a97e-69929322ef47");
+        DEVICE_UUID_MAP.put("oscilloscope", "ffe670a2-09aa-4c9b-8822-5161a9cca686");
+    }
+
     /**
      * Creates a new BitwigApiFacade instance.
      *
@@ -122,6 +209,13 @@ public class BitwigApiFacade {
             parameter.value().markInterested();
             parameter.displayedValue().markInterested();
         }
+
+        // Register preset/Page observers on cursorDevice for autonomous sound selection
+        cursorDevice.addPresetNamesObserver(names -> { this.presetNames = names; this.selectedPresetIndex = findPresetIndex(); });
+        cursorDevice.addPresetCategoriesObserver(cats -> { this.presetCategories = cats; });
+        cursorDevice.addPresetCreatorsObserver(creators -> { this.presetCreators = creators; });
+        cursorDevice.addPageNamesObserver(pages -> { this.pageNames = pages; });
+        cursorDevice.addSelectedPageObserver(0, pageIdx -> { this.selectedPageIndex = pageIdx; });
 
         // Mark interest in project parameters to enable value access
         for (int i = 0; i < projectParameterBank.getParameterCount(); i++) {
@@ -1759,6 +1853,227 @@ public class BitwigApiFacade {
     }
 
     // ========================================
+    // Device Selection & Preset Navigation
+    // ========================================
+
+    /**
+     * Finds the index of the current preset by matching its name.
+     */
+    private int findPresetIndex() {
+        try {
+            String name = cursorDevice.presetName().get();
+            if (name != null && presetNames != null) {
+                for (int i = 0; i < presetNames.length; i++) {
+                    if (name.equals(presetNames[i])) return i;
+                }
+            }
+        } catch (Exception e) { /* ignore */ }
+        return -1;
+    }
+
+    /**
+     * Selects a device on a track by navigating the cursor device to it.
+     */
+    public Map<String, Object> selectDeviceOnTrack(String trackName, int deviceIndex) throws BitwigApiException {
+        final String operation = "selectDevice";
+        logger.info("BitwigApiFacade: Selecting device " + deviceIndex + " on track '" + trackName + "'");
+
+        return WigAIErrorHandler.executeWithErrorHandling(operation, () -> {
+            ParameterValidator.validateNotEmpty(trackName, "trackName", operation);
+
+            Optional<Track> trackOpt = findTrackByName(trackName);
+            if (trackOpt.isEmpty()) {
+                throw new BitwigApiException(ErrorCode.TRACK_NOT_FOUND, operation,
+                    "Track '" + trackName + "' not found", Map.of("trackName", trackName));
+            }
+            int trackIdx = getTrackIndexByName(trackName);
+
+            if (trackIdx < 0 || trackIdx >= trackDeviceBanks.size()) {
+                throw new BitwigApiException(ErrorCode.INVALID_RANGE, operation,
+                    "Device bank not available for track index " + trackIdx, Map.of("trackIndex", trackIdx));
+            }
+
+            DeviceBank deviceBank = trackDeviceBanks.get(trackIdx);
+            if (deviceIndex < 0 || deviceIndex >= deviceBank.getSizeOfBank()) {
+                throw new BitwigApiException(ErrorCode.INVALID_RANGE, operation,
+                    "Device index " + deviceIndex + " out of bounds (max: " + (deviceBank.getSizeOfBank() - 1) + ")",
+                    Map.of("deviceIndex", deviceIndex, "maxIndex", deviceBank.getSizeOfBank() - 1));
+            }
+
+            Device device = deviceBank.getItemAt(deviceIndex);
+            if (!device.exists().get()) {
+                throw new BitwigApiException(ErrorCode.DEVICE_NOT_SELECTED, operation,
+                    "Device at index " + deviceIndex + " does not exist", Map.of("deviceIndex", deviceIndex));
+            }
+
+            device.selectInEditor();
+
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("action", "device_selected");
+            result.put("track_name", trackName);
+            result.put("device_index", deviceIndex);
+            result.put("device_name", device.name().get());
+            result.put("device_type", device.deviceType().get());
+            result.put("preset_name", cursorDevice.presetName().get());
+            result.put("preset_category", cursorDevice.presetCategory().get());
+            result.put("preset_creator", cursorDevice.presetCreator().get());
+
+            logger.info("BitwigApiFacade: Selected device '" + device.name().get() + "' on " + trackName);
+            return result;
+        });
+    }
+
+    /**
+     * Returns all cached preset/page information for the cursor device.
+     */
+    public Map<String, Object> getDevicePresets() throws BitwigApiException {
+        final String operation = "getDevicePresets";
+        logger.info("BitwigApiFacade: Getting device presets");
+
+        return WigAIErrorHandler.executeWithErrorHandling(operation, () -> {
+            if (!cursorDevice.exists().get()) {
+                throw new BitwigApiException(ErrorCode.DEVICE_NOT_SELECTED, operation, "No device selected");
+            }
+
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("device_name", cursorDevice.name().get());
+            result.put("device_type", cursorDevice.deviceType().get());
+            result.put("preset_name", cursorDevice.presetName().get());
+            result.put("preset_category", cursorDevice.presetCategory().get());
+            result.put("preset_creator", cursorDevice.presetCreator().get());
+            result.put("preset_index", selectedPresetIndex);
+            result.put("preset_count", presetNames != null ? presetNames.length : 0);
+            result.put("preset_names", presetNames);
+            result.put("preset_categories", presetCategories);
+            result.put("preset_creators", presetCreators);
+            result.put("page_index", selectedPageIndex);
+            result.put("page_count", pageNames != null ? pageNames.length : 0);
+            result.put("page_names", pageNames);
+
+            return result;
+        });
+    }
+
+    /**
+     * Loads a preset by index on the cursor device.
+     */
+    public Map<String, Object> loadPreset(int presetIndex) throws BitwigApiException {
+        final String operation = "loadPreset";
+        logger.info("BitwigApiFacade: Loading preset " + presetIndex);
+
+        return WigAIErrorHandler.executeWithErrorHandling(operation, () -> {
+            if (!cursorDevice.exists().get()) {
+                throw new BitwigApiException(ErrorCode.DEVICE_NOT_SELECTED, operation, "No device selected");
+            }
+            if (presetNames == null || presetIndex < 0 || presetIndex >= presetNames.length) {
+                throw new BitwigApiException(ErrorCode.INVALID_PARAMETER, operation,
+                    "Preset index " + presetIndex + " out of range (0-" + (presetNames != null ? presetNames.length - 1 : 0) + ")",
+                    Map.of("presetIndex", presetIndex));
+            }
+
+            cursorDevice.loadPreset(presetIndex);
+
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("action", "preset_loaded");
+            result.put("preset_index", presetIndex);
+            result.put("preset_name", presetNames[presetIndex]);
+            if (presetCategories != null && presetIndex < presetCategories.length) {
+                result.put("preset_category", presetCategories[presetIndex]);
+            }
+
+            logger.info("BitwigApiFacade: Loaded preset '" + presetNames[presetIndex] + "'");
+            return result;
+        });
+    }
+
+    /**
+     * Navigates presets (next/previous) on the cursor device.
+     */
+    public Map<String, Object> navigatePreset(String direction) throws BitwigApiException {
+        final String operation = "navigatePreset";
+        logger.info("BitwigApiFacade: Navigating preset " + direction);
+
+        return WigAIErrorHandler.executeWithErrorHandling(operation, () -> {
+            if (!cursorDevice.exists().get()) {
+                throw new BitwigApiException(ErrorCode.DEVICE_NOT_SELECTED, operation, "No device selected");
+            }
+
+            if ("next".equalsIgnoreCase(direction)) {
+                cursorDevice.switchToNextPreset();
+            } else if ("previous".equalsIgnoreCase(direction)) {
+                cursorDevice.switchToPreviousPreset();
+            } else {
+                throw new BitwigApiException(ErrorCode.INVALID_PARAMETER, operation,
+                    "Direction must be 'next' or 'previous', got: " + direction, Map.of("direction", direction));
+            }
+
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("action", "preset_navigated");
+            result.put("direction", direction);
+            result.put("preset_name", cursorDevice.presetName().get());
+            result.put("preset_category", cursorDevice.presetCategory().get());
+
+            return result;
+        });
+    }
+
+    /**
+     * Sets the parameter page on the cursor device.
+     */
+    public Map<String, Object> selectDevicePage(int pageIndex) throws BitwigApiException {
+        final String operation = "selectDevicePage";
+        logger.info("BitwigApiFacade: Selecting device page " + pageIndex);
+
+        return WigAIErrorHandler.executeWithErrorHandling(operation, () -> {
+            if (!cursorDevice.exists().get()) {
+                throw new BitwigApiException(ErrorCode.DEVICE_NOT_SELECTED, operation, "No device selected");
+            }
+            if (pageNames == null || pageIndex < 0 || pageIndex >= pageNames.length) {
+                throw new BitwigApiException(ErrorCode.INVALID_PARAMETER, operation,
+                    "Page index " + pageIndex + " out of range (0-" + (pageNames != null ? pageNames.length - 1 : 0) + ")",
+                    Map.of("pageIndex", pageIndex));
+            }
+
+            cursorDevice.setParameterPage(pageIndex);
+
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("action", "page_selected");
+            result.put("page_index", pageIndex);
+            result.put("page_name", pageNames[pageIndex]);
+
+            return result;
+        });
+    }
+
+    /**
+     * Navigates preset categories (next/previous) on the cursor device.
+     */
+    public Map<String, Object> navigatePresetCategory(String direction) throws BitwigApiException {
+        final String operation = "navigatePresetCategory";
+        logger.info("BitwigApiFacade: Navigating preset category " + direction);
+
+        return WigAIErrorHandler.executeWithErrorHandling(operation, () -> {
+            if (!cursorDevice.exists().get()) {
+                throw new BitwigApiException(ErrorCode.DEVICE_NOT_SELECTED, operation, "No device selected");
+            }
+            if ("next".equalsIgnoreCase(direction)) {
+                cursorDevice.switchToNextPresetCategory();
+            } else if ("previous".equalsIgnoreCase(direction)) {
+                cursorDevice.switchToPreviousPresetCategory();
+            } else {
+                throw new BitwigApiException(ErrorCode.INVALID_PARAMETER, operation,
+                    "Direction must be 'next' or 'previous'", Map.of("direction", direction));
+            }
+
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("action", "preset_category_navigated");
+            result.put("direction", direction);
+            result.put("preset_category", cursorDevice.presetCategory().get());
+            return result;
+        });
+    }
+
+    // ========================================
     // Clip Content Creation Methods
     // ========================================
 
@@ -1936,6 +2251,234 @@ public class BitwigApiFacade {
             cursorClip.clearSteps();
 
             logger.info("BitwigApiFacade: Successfully cleared slot " + trackName + "[" + slotIndex + "]");
+        });
+    }
+
+    // ========================================
+    // Clip Reading Methods
+    // ========================================
+
+    /**
+     * Selects a clip launcher slot, making it the active cursor clip.
+     */
+    public Map<String, Object> selectClipSlot(String trackName, int slotIndex) throws BitwigApiException {
+        final String operation = "selectClipSlot";
+        logger.info("BitwigApiFacade: Selecting clip slot " + trackName + "[" + slotIndex + "]");
+
+        return WigAIErrorHandler.executeWithErrorHandling(operation, () -> {
+            ClipLauncherSlot slot = getClipLauncherSlot(trackName, slotIndex);
+            slot.select();
+
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("action", "clip_selected");
+            result.put("track_name", trackName);
+            result.put("slot_index", slotIndex);
+            result.put("has_content", slot.hasContent().get());
+            if (slot.hasContent().get()) {
+                result.put("clip_name", slot.name().get());
+            }
+
+            logger.info("BitwigApiFacade: Selected clip slot " + trackName + "[" + slotIndex + "]");
+            return result;
+        });
+    }
+
+    /**
+     * Reads all MIDI notes from a clip in a launcher slot.
+     * Returns up to 500 notes from the first 64 steps × 128 keys.
+     */
+    public Map<String, Object> getClipNotes(String trackName, int slotIndex) throws BitwigApiException {
+        final String operation = "getClipNotes";
+        logger.info("BitwigApiFacade: Reading notes from " + trackName + "[" + slotIndex + "]");
+
+        return WigAIErrorHandler.executeWithErrorHandling(operation, () -> {
+            ClipLauncherSlot slot = getClipLauncherSlot(trackName, slotIndex);
+
+            if (!slot.hasContent().get()) {
+                Map<String, Object> empty = new LinkedHashMap<>();
+                empty.put("action", "clip_notes");
+                empty.put("track_name", trackName);
+                empty.put("slot_index", slotIndex);
+                empty.put("has_content", false);
+                empty.put("notes", List.of());
+                empty.put("note_count", 0);
+                return empty;
+            }
+
+            slot.select();
+
+            List<Map<String, Object>> notes = new ArrayList<>();
+            int maxSteps = 64;  // Reasonable scan range
+            int maxKeys = 128;
+
+            for (int step = 0; step < maxSteps; step++) {
+                cursorClip.scrollToStep(step);
+                for (int key = 0; key < maxKeys; key++) {
+                    try {
+                        NoteStep noteStep = cursorClip.getStep(0, key, step);
+                        if (noteStep != null && noteStep.state() != NoteStep.State.Empty) {
+                            Map<String, Object> note = new LinkedHashMap<>();
+                            note.put("key", noteStep.y());
+                            note.put("step", noteStep.x());
+                            note.put("channel", noteStep.channel());
+                            note.put("velocity", noteStep.velocity());
+                            note.put("duration", noteStep.duration());
+                            note.put("state", noteStep.state().name());
+                            notes.add(note);
+
+                            if (notes.size() >= 500) break; // safety cap
+                        }
+                    } catch (Exception e) {
+                        // Skip invalid step/key combinations
+                    }
+                }
+                if (notes.size() >= 500) break;
+            }
+
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("action", "clip_notes");
+            result.put("track_name", trackName);
+            result.put("slot_index", slotIndex);
+            result.put("has_content", true);
+            result.put("clip_name", slot.name().get());
+            result.put("notes", notes);
+            result.put("note_count", notes.size());
+
+            logger.info("BitwigApiFacade: Read " + notes.size() + " notes from " + trackName + "[" + slotIndex + "]");
+            return result;
+        });
+    }
+
+    /**
+     * Gets clip metadata without reading all notes.
+     */
+    public Map<String, Object> getClipInfo(String trackName, int slotIndex) throws BitwigApiException {
+        final String operation = "getClipInfo";
+        logger.info("BitwigApiFacade: Getting clip info for " + trackName + "[" + slotIndex + "]");
+
+        return WigAIErrorHandler.executeWithErrorHandling(operation, () -> {
+            ClipLauncherSlot slot = getClipLauncherSlot(trackName, slotIndex);
+
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("action", "clip_info");
+            result.put("track_name", trackName);
+            result.put("slot_index", slotIndex);
+            result.put("has_content", slot.hasContent().get());
+            result.put("is_playing", slot.isPlaying().get());
+            result.put("is_recording", slot.isRecording().get());
+            result.put("is_playback_queued", slot.isPlaybackQueued().get());
+
+            if (slot.hasContent().get()) {
+                result.put("clip_name", slot.name().get());
+                Color color = slot.color().get();
+                if (color != null) {
+                    result.put("clip_color", String.format("#%02X%02X%02X",
+                        (int)(color.getRed() * 255),
+                        (int)(color.getGreen() * 255),
+                        (int)(color.getBlue() * 255)));
+                }
+
+                slot.select();
+                if (cursorClip.exists().get()) {
+                    result.put("clip_exists", true);
+                    try {
+                        result.put("play_start", cursorClip.getPlayStart().get());
+                        result.put("play_stop", cursorClip.getPlayStop().get());
+                    } catch (Exception e) { /* best effort */ }
+                }
+            }
+
+            return result;
+        });
+    }
+
+    // ========================================
+    // Device & Audio Insertion
+    // ========================================
+
+    /**
+     * Looks up a device UUID by name (case-insensitive, trims spaces).
+     * Accepts both human names ("Polysynth") and raw UUIDs.
+     */
+    public static String resolveDeviceUuid(String nameOrUuid) {
+        if (nameOrUuid == null) return null;
+        // If it already looks like a UUID, return as-is
+        if (nameOrUuid.matches("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")) {
+            return nameOrUuid;
+        }
+        // Case-insensitive lookup
+        String key = nameOrUuid.toLowerCase().trim();
+        return DEVICE_UUID_MAP.get(key);
+    }
+
+    /**
+     * Returns the list of known device names that can be inserted by name.
+     */
+    public static java.util.Set<String> getKnownDeviceNames() {
+        return DEVICE_UUID_MAP.keySet();
+    }
+
+    /**
+     * Inserts a Bitwig built-in device onto a track's device chain.
+     */
+    public Map<String, Object> addDeviceToTrack(String trackName, String deviceUuid, String position) throws BitwigApiException {
+        final String operation = "addDeviceToTrack";
+        logger.info("BitwigApiFacade: Adding device " + deviceUuid + " to track '" + trackName + "' at " + position);
+
+        return WigAIErrorHandler.executeWithErrorHandling(operation, () -> {
+            ParameterValidator.validateNotEmpty(trackName, "trackName", operation);
+            ParameterValidator.validateNotEmpty(deviceUuid, "deviceUuid", operation);
+            final String pos = (position != null && "start".equalsIgnoreCase(position)) ? "start" : "end";
+
+            Optional<Track> trackOpt = findTrackByName(trackName);
+            if (trackOpt.isEmpty()) {
+                throw new BitwigApiException(ErrorCode.TRACK_NOT_FOUND, operation,
+                    "Track '" + trackName + "' not found", Map.of("trackName", trackName));
+            }
+
+            Track track = trackOpt.get();
+            InsertionPoint insertionPoint;
+            if ("start".equals(pos)) {
+                insertionPoint = track.startOfDeviceChainInsertionPoint();
+            } else {
+                insertionPoint = track.endOfDeviceChainInsertionPoint();
+            }
+
+            insertionPoint.insertBitwigDevice(java.util.UUID.fromString(deviceUuid));
+
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("action", "device_added");
+            result.put("track_name", trackName);
+            result.put("device_uuid", deviceUuid);
+            result.put("position", pos);
+            result.put("message", "Inserted device " + deviceUuid + " at " + pos + " of " + trackName);
+            return result;
+        });
+    }
+
+    /**
+     * Inserts an audio file into a clip launcher slot, replacing any existing clip.
+     */
+    public Map<String, Object> addAudioClipToSlot(String trackName, int slotIndex, String filePath) throws BitwigApiException {
+        final String operation = "addAudioClip";
+        logger.info("BitwigApiFacade: Adding audio clip from " + filePath + " to " + trackName + "[" + slotIndex + "]");
+
+        return WigAIErrorHandler.executeWithErrorHandling(operation, () -> {
+            ParameterValidator.validateNotEmpty(trackName, "trackName", operation);
+            ParameterValidator.validateNotEmpty(filePath, "filePath", operation);
+
+            ClipLauncherSlot slot = getClipLauncherSlot(trackName, slotIndex);
+
+            InsertionPoint insertionPoint = slot.replaceInsertionPoint();
+            insertionPoint.insertFile(filePath);
+
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("action", "audio_clip_added");
+            result.put("track_name", trackName);
+            result.put("slot_index", slotIndex);
+            result.put("file_path", filePath);
+            result.put("message", "Inserted audio file into " + trackName + "[" + slotIndex + "]");
+            return result;
         });
     }
 }

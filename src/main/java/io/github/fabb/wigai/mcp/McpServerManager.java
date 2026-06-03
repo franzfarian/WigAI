@@ -27,6 +27,10 @@ import io.modelcontextprotocol.spec.McpSchema;
 import com.bitwig.extension.controller.api.ControllerHost;
 import io.github.fabb.wigai.mcp.tool.SceneByNameTool;
 import io.github.fabb.wigai.mcp.tool.ClipContentTool;
+import io.github.fabb.wigai.mcp.tool.DevicePresetTool;
+import io.github.fabb.wigai.mcp.tool.ClipNoteTool;
+import io.github.fabb.wigai.mcp.tool.DeviceInsertionTool;
+import io.github.fabb.wigai.mcp.tool.AudioClipTool;
 
 /**
  * Manages the MCP server for the WigAI extension.
@@ -157,7 +161,19 @@ public class McpServerManager {
                 ClipContentTool.createClipSpecification(bitwigApiFacade, structuredLogger),
                 ClipContentTool.deleteClipSpecification(bitwigApiFacade, structuredLogger),
                 ClipContentTool.addNoteSpecification(bitwigApiFacade, structuredLogger),
-                ClipContentTool.clearSlotSpecification(bitwigApiFacade, structuredLogger)
+                ClipContentTool.clearSlotSpecification(bitwigApiFacade, structuredLogger),
+                DevicePresetTool.selectDeviceSpecification(bitwigApiFacade, structuredLogger),
+                DevicePresetTool.getDevicePresetsSpecification(bitwigApiFacade, structuredLogger),
+                DevicePresetTool.selectDevicePresetSpecification(bitwigApiFacade, structuredLogger),
+                DevicePresetTool.navigateDevicePresetsSpecification(bitwigApiFacade, structuredLogger),
+                DevicePresetTool.navigatePresetCategoriesSpecification(bitwigApiFacade, structuredLogger),
+                DevicePresetTool.selectDevicePageSpecification(bitwigApiFacade, structuredLogger),
+                ClipNoteTool.getClipNotesSpecification(bitwigApiFacade, structuredLogger),
+                ClipNoteTool.getClipInfoSpecification(bitwigApiFacade, structuredLogger),
+                ClipNoteTool.selectClipSpecification(bitwigApiFacade, structuredLogger),
+                DeviceInsertionTool.addDeviceSpecification(bitwigApiFacade, structuredLogger),
+                DeviceInsertionTool.listAvailableDevicesSpecification(bitwigApiFacade, structuredLogger),
+                AudioClipTool.createAudioClipSpecification(bitwigApiFacade, structuredLogger)
             )
             .build();
 
